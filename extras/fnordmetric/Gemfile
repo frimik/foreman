@@ -1,0 +1,2 @@
+source :rubygems
+gem 'fnordmetric', '>= 1.0.0'
