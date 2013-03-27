@@ -52,6 +52,11 @@ class AuthSourceLdap < AuthSource
 
     logger.debug "DN found for #{login}: #{dn}"
 
+    unless permit_access_by_group?(login, password, dn, ["Foreman Users"])
+      logger.warn "Not permitted by group"
+      return nil
+    end
+
     # finally, authenticate user
     ldap_con = initialize_ldap_con(dn, password)
     unless ldap_con.bind
@@ -143,6 +148,28 @@ class AuthSourceLdap < AuthSource
 
     # we really care about one match, using the last one, hoping there is only one match :)
     entries ? entries.last : nil
+  end
+
+  def permit_access_by_group?(login, password, dn, groups = ["Foreman Users"])
+    user = effective_user(login)
+    pass = use_user_login_for_auth? ? password : account_password
+    ldap_con = initialize_ldap_con(user, pass)
+    group_filter = "(member:1.2.840.113556.1.4.1941:=#{dn})"
+    # Active Directory docs about this filter method:
+    # http://msdn.microsoft.com/en-us/library/aa746475%28VS.85%29.aspx
+    f = Net::LDAP::Filter.construct(group_filter)
+    attributes = %w{samaccountname cn}
+
+    # Get the Canonical list of groups for the user:
+    entries = ldap_con.search(:base => base_dn,
+                              :filter => f,
+                              :attributes => attributes,
+                              :return_result => false) do |entry|
+      logger.debug "Search Result: Common name: #{entry.cn}"
+      # Permit if the group matches
+      return true if groups.include?(entry.samaccountname)
+    end
+    return false
   end
 
 end
